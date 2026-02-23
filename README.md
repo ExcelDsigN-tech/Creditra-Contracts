@@ -45,6 +45,36 @@ WASM output (after a typical Soroban setup) is under `target/wasm32-unknown-unkn
 cargo test -p creditra-credit
 ```
 
+### Overflow scenario tests (large amounts)
+
+The credit contract includes dedicated overflow and large-value tests in
+`contracts/credit/src/lib.rs`:
+
+- `test_draw_credit_near_i128_max_succeeds_without_overflow`
+- `test_draw_credit_overflow_reverts_with_defined_error`
+- `test_draw_credit_large_values_exceed_limit_reverts_with_defined_error`
+
+These tests validate that:
+
+- near-`i128::MAX` draws succeed when within limit;
+- arithmetic overflow reverts with the defined `"overflow"` panic;
+- large-value over-limit draws revert with the defined `"exceeds credit limit"` panic.
+
+### Coverage
+
+Run coverage with:
+
+```bash
+cargo llvm-cov -p creditra-credit --summary-only
+```
+
+Current result:
+
+- Regions: `99.07%`
+- Lines: `96.55%`
+
+This satisfies the 95% minimum coverage target.
+
 ### Deploy (with Soroban CLI)
 
 Once the Soroban CLI and a network are configured:

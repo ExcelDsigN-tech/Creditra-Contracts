@@ -39,11 +39,10 @@ pub struct Credit;
 #[contractimpl]
 impl Credit {
     /// Initialize the contract (admin).
-    pub fn init(env: Env, admin: Address) -> () {
+    pub fn init(env: Env, admin: Address) {
         env.storage()
             .instance()
             .set(&Symbol::new(&env, "admin"), &admin);
-        ()
     }
 
     /// Open a new credit line for a borrower (called by backend/risk engine).
@@ -54,7 +53,7 @@ impl Credit {
         credit_limit: i128,
         interest_rate_bps: u32,
         risk_score: u32,
-    ) -> () {
+    ) {
         let credit_line = CreditLineData {
             borrower: borrower.clone(),
             credit_limit,
@@ -78,12 +77,11 @@ impl Credit {
                 risk_score,
             },
         );
-        ()
     }
 
     /// Draw from credit line (borrower).
     /// Reverts if credit line does not exist, is Closed, or borrower has not authorized.
-    pub fn draw_credit(env: Env, borrower: Address, amount: i128) -> () {
+    pub fn draw_credit(env: Env, borrower: Address, amount: i128) {
         borrower.require_auth();
         let mut credit_line: CreditLineData = env
             .storage()
@@ -106,12 +104,11 @@ impl Credit {
         credit_line.utilized_amount = new_utilized;
         env.storage().persistent().set(&borrower, &credit_line);
         // TODO: transfer token to borrower
-        ()
     }
 
     /// Repay credit (borrower).
     /// Reverts if credit line does not exist, is Closed, or borrower has not authorized.
-    pub fn repay_credit(env: Env, borrower: Address, _amount: i128) -> () {
+    pub fn repay_credit(env: Env, borrower: Address, _amount: i128) {
         borrower.require_auth();
         let credit_line: CreditLineData = env
             .storage()
@@ -122,7 +119,6 @@ impl Credit {
             panic!("credit line is closed");
         }
         // TODO: accept token, reduce utilized_amount, accrue interest
-        ()
     }
 
     /// Update risk parameters (admin/risk engine).
@@ -132,14 +128,13 @@ impl Credit {
         _credit_limit: i128,
         _interest_rate_bps: u32,
         _risk_score: u32,
-    ) -> () {
+    ) {
         // TODO: update stored CreditLineData
-        ()
     }
 
     /// Suspend a credit line (admin).
     /// Emits a CreditLineSuspended event.
-    pub fn suspend_credit_line(env: Env, borrower: Address) -> () {
+    pub fn suspend_credit_line(env: Env, borrower: Address) {
         let mut credit_line: CreditLineData = env
             .storage()
             .persistent()
@@ -161,7 +156,6 @@ impl Credit {
                 risk_score: credit_line.risk_score,
             },
         );
-        ()
     }
 
     /// Close a credit line. Callable by admin (force-close) or by borrower when utilization is zero.
@@ -176,7 +170,7 @@ impl Credit {
     ///   borrower closes while `utilized_amount != 0`.
     ///
     /// Emits a CreditLineClosed event.
-    pub fn close_credit_line(env: Env, borrower: Address, closer: Address) -> () {
+    pub fn close_credit_line(env: Env, borrower: Address, closer: Address) {
         closer.require_auth();
 
         let admin: Address = env
@@ -192,7 +186,7 @@ impl Credit {
             .expect("Credit line not found");
 
         if credit_line.status == CreditStatus::Closed {
-            return ();
+            return;
         }
 
         let allowed = closer == admin || (closer == borrower && credit_line.utilized_amount == 0);
@@ -218,12 +212,11 @@ impl Credit {
                 risk_score: credit_line.risk_score,
             },
         );
-        ()
     }
 
     /// Mark a credit line as defaulted (admin).
     /// Emits a CreditLineDefaulted event.
-    pub fn default_credit_line(env: Env, borrower: Address) -> () {
+    pub fn default_credit_line(env: Env, borrower: Address) {
         let mut credit_line: CreditLineData = env
             .storage()
             .persistent()
@@ -245,7 +238,6 @@ impl Credit {
                 risk_score: credit_line.risk_score,
             },
         );
-        ()
     }
 
     /// Get credit line data for a borrower (view function).
@@ -662,5 +654,70 @@ mod test {
             client.get_credit_line(&borrower).unwrap().utilized_amount,
             500
         );
+    }
+
+    #[test]
+    fn test_draw_credit_near_i128_max_succeeds_without_overflow() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let borrower = Address::generate(&env);
+
+        let contract_id = env.register(Credit, ());
+        let client = CreditClient::new(&env, &contract_id);
+
+        client.init(&admin);
+        client.open_credit_line(&borrower, &i128::MAX, &300_u32, &70_u32);
+
+        client.draw_credit(&borrower, &(i128::MAX - 1));
+        assert_eq!(
+            client.get_credit_line(&borrower).unwrap().utilized_amount,
+            i128::MAX - 1
+        );
+
+        client.draw_credit(&borrower, &1_i128);
+        assert_eq!(
+            client.get_credit_line(&borrower).unwrap().utilized_amount,
+            i128::MAX
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "overflow")]
+    fn test_draw_credit_overflow_reverts_with_defined_error() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let borrower = Address::generate(&env);
+
+        let contract_id = env.register(Credit, ());
+        let client = CreditClient::new(&env, &contract_id);
+
+        client.init(&admin);
+        client.open_credit_line(&borrower, &i128::MAX, &300_u32, &70_u32);
+
+        client.draw_credit(&borrower, &i128::MAX);
+        client.draw_credit(&borrower, &1_i128);
+    }
+
+    #[test]
+    #[should_panic(expected = "exceeds credit limit")]
+    fn test_draw_credit_large_values_exceed_limit_reverts_with_defined_error() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let admin = Address::generate(&env);
+        let borrower = Address::generate(&env);
+
+        let contract_id = env.register(Credit, ());
+        let client = CreditClient::new(&env, &contract_id);
+
+        client.init(&admin);
+        client.open_credit_line(&borrower, &(i128::MAX - 2), &300_u32, &70_u32);
+
+        client.draw_credit(&borrower, &(i128::MAX - 10));
+        client.draw_credit(&borrower, &9_i128);
     }
 }
