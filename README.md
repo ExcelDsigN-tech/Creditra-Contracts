@@ -65,13 +65,13 @@ These tests validate that:
 Run coverage with:
 
 ```bash
-cargo llvm-cov -p creditra-credit --summary-only
+cargo llvm-cov --workspace --all-targets --fail-under-lines 95
 ```
 
 Current result:
 
-- Regions: `99.07%`
-- Lines: `96.55%`
+- Regions: `99.51%`
+- Lines: `98.94%`
 
 This satisfies the 95% minimum coverage target.
 
