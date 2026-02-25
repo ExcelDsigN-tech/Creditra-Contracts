@@ -153,15 +153,23 @@ impl Credit {
         );
     }
 
-    /// Reverts if credit line does not exist, is Closed, or borrower has not authorized.
-    pub fn draw_credit(env: Env, borrower: Address, amount: i128) {
+    /// Draw from credit line (borrower).
+    /// Reverts if credit line does not exist, is Closed, borrower has not authorized,
+    /// or the provided borrower does not match the stored credit line owner.
+    pub fn draw_credit(env: Env, borrower: Address, amount: i128) -> () {
         set_reentrancy_guard(&env);
         borrower.require_auth();
+
         let mut credit_line: CreditLineData = env
             .storage()
             .persistent()
             .get(&borrower)
             .expect("Credit line not found");
+
+        if credit_line.borrower != borrower {
+            panic!("Borrower mismatch for credit line");
+        }
+
         if credit_line.status == CreditStatus::Closed {
             clear_reentrancy_guard(&env);
             panic!("credit line is closed");
@@ -170,14 +178,17 @@ impl Credit {
             clear_reentrancy_guard(&env);
             panic!("amount must be positive");
         }
+
         let new_utilized = credit_line
             .utilized_amount
             .checked_add(amount)
             .expect("overflow");
+
         if new_utilized > credit_line.credit_limit {
             clear_reentrancy_guard(&env);
             panic!("exceeds credit limit");
         }
+
         credit_line.utilized_amount = new_utilized;
         env.storage().persistent().set(&borrower, &credit_line);
         clear_reentrancy_guard(&env);
@@ -195,6 +206,11 @@ impl Credit {
             .persistent()
             .get(&borrower)
             .expect("Credit line not found");
+
+        if credit_line.borrower != borrower {
+            panic!("Borrower mismatch for credit line");
+        }
+
         if credit_line.status == CreditStatus::Closed {
             clear_reentrancy_guard(&env);
             panic!("credit line is closed");
